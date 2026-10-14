@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Rhythm Visualizer</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --text-color: #ffffff;
+            --accent-color: #00e5ff;
+            --grid-color: #444;
+            --grid-highlight: #fff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: var(--bg-color); color: var(--text-color); display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        h1 { font-size: 1.8rem; color: var(--accent-color); margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; }
+
+        .container { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 20px; }
+        
+        .top-panel, .bottom-panel { background-color: var(--panel-bg); padding: 20px; border-radius: 12px; border: 1px solid #333; }
+        .controls-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 15px; }
+        .control-group { display: flex; flex-direction: column; gap: 5px; }
+        
+        label { font-size: 0.85rem; font-weight: 600; color: #aaa; text-transform: uppercase; }
+        select, input[type="range"], button { background-color: #2a2a2a; color: white; border: 1px solid #444; padding: 10px; border-radius: 6px; font-size: 0.95rem; }
+        select:focus, input:focus { outline: none; border-color: var(--accent-color); }
+        
+        button { cursor: pointer; font-weight: bold; transition: 0.2s; background-color: #333; }
+        button:hover { background-color: #444; }
+        button.primary { background-color: var(--accent-color); color: #000; }
+        button.primary:hover { background-color: #00c4db; }
+        button.playing { background-color: #ff3366; color: #fff; }
+        button.playing:hover { background-color: #e62e5c; }
+
+        .canvas-wrapper { width: 100%; background-color: #151515; border-radius: 8px; overflow: hidden; border: 2px solid #2a2a2a; }
+        canvas { display: block; width: 100%; height: 300px; }
+
+        .stats { display: flex; gap: 30px; margin-top: 10px; font-size: 0.9rem; color: #aaa; }
+        .stats span { color: var(--accent-color); font-weight: bold; font-size: 1.1rem; }
+
+        .import-section { display: flex; gap: 10px; margin-bottom: 20px; align-items: flex-end; }
+        .import-section textarea { flex: 1; height: 42px; background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 6px; resize: none; font-family: monospace; }
+        
+        .notes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 15px; }
+        .note-card { background: #252525; padding: 10px; border-radius: 8px; border: 1px solid #3a3a3a; display: flex; flex-direction: column; gap: 10px; }
+        .note-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #888; }
+        .delete-btn { color: #ff3366; background: none; border: none; padding: 0; font-size: 0.8rem; cursor: pointer; }
+        .delete-btn:hover { text-decoration: underline; background: none; }
+        
+        .add-note-btn { width: 100%; margin-top: 20px; border: 1px dashed #666; background: transparent; color: #aaa; }
+        .add-note-btn:hover { border-color: var(--accent-color); color: var(--accent-color); }
+    </style>
+</head>
+<body>
+
+    <h1>Visualizer Nhịp Điệu & Tiết Tấu</h1>
+
+    <div class="container">
+        <!-- Canvas Panel -->
+        <div class="top-panel">
+            <div class="controls-row">
+                <button id="play-btn" class="primary">▶ PLAY</button>
+                <div class="control-group">
+                    <label>Số chỉ nhịp</label>
+                    <select id="time-signature">
+                        <option value="4">4/4</option>
+                        <option value="3">3/4</option>
+                        <option value="2">2/4</option>
+                        <option value="6">6/8</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Tempo: <span id="bpm-val">100</span> BPM</label>
+                    <input type="range" id="tempo" min="40" max="200" value="100">
+                </div>
+                <div class="control-group">
+                    <label>Metronome</label>
+                    <button id="mute-btn">Đang Bật</button>
+                </div>
+            </div>
+            
+            <div class="canvas-wrapper">
+                <canvas id="canvas" width="1000" height="300"></canvas>
+            </div>
+            
+            <div class="stats">
+                <div>Tổng phách: <span id="total-beats">0</span></div>
+            </div>
+        </div>
+
+        <!-- Note Builder Panel -->
+        <div class="bottom-panel">
+            <div class="import-section">
+                <div class="control-group" style="flex: 1;">
+                    <label>Nhập Dữ Liệu Nhanh (Ví dụ: 1.5, 0.5, 1, 0.25, 0.25)</label>
+                    <textarea id="import-text" placeholder="Nhập chuỗi số trường độ..."></textarea>
+                </div>
+                <button id="import-btn" class="primary">NẠP</button>
+            </div>
+
+            <label>Chuỗi Tiết Tấu Từng Nốt</label>
+            <div class="notes-grid" id="notes-grid"></div>
+            <button id="add-note-btn" class="add-note-btn">+ THÊM NỐT</button>
+        </div>
+    </div>
+
+    <script>
+        // Cấu hình Nốt
+        const noteTypes = {
+            2: "Nốt Trắng (2)",
+            1.5: "Nốt Đen Chấm Dôi (1.5)",
+            1: "Nốt Đen (1)",
+            0.75: "Móc Đơn Chấm Dôi (0.75)",
+            0.5: "Móc Đơn (0.5)",
+            0.333: "Chùm Ba (1/3)",
+            0.25: "Móc Kép (1/4)"
+        };
+        const neonColors = ['#39ff14', '#ff00ff', '#00e5ff', '#fffb00'];
+
+        // Trạng thái ứng dụng
+        let notes = [
+            { id: 1, duration: 1.5 },
+            { id: 2, duration: 0.5 },
+            { id: 3, duration: 1 },
+            { id: 4, duration: 0.25 },
+            { id: 5, duration: 0.25 },
+            { id: 6, duration: 0.25 },
+            { id: 7, duration: 0.25 }
+        ];
+        
+        let isPlaying = false;
+        let isMuted = false;
+        let tempo = 100;
+        let beatsPerMeasure = 4;
+        let audioCtx;
+        let nextNoteTime = 0;
+        let currentNoteIndex = 0;
+        let sequenceStartTime = 0;
+        let schedulerTimer;
+
+        // DOM
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const notesGrid = document.getElementById('notes-grid');
+        
+        // Cập nhật UI Thẻ Nốt
+        function renderNotesUI() {
+            notesGrid.innerHTML = '';
+            let totalBeats = 0;
+
+            notes.forEach((note, index) => {
+                totalBeats += note.duration;
+                
+                const card = document.createElement('div');
+                card.className = 'note-card';
+                
+                let optionsHtml = '';
+                for (const [val, label] of Object.entries(noteTypes)) {
+                    const selected = Math.abs(parseFloat(val) - note.duration) < 0.01 ? 'selected' : '';
+                    optionsHtml += `<option value="${val}" ${selected}>${label}</option>`;
+                }
+
+                card.innerHTML = `
+                    <div class="note-header">
+                        <span>Vị trí ${index + 1}</span>
+                        <button class="delete-btn" onclick="deleteNote(${note.id})">Xóa</button>
+                    </div>
+                    <select onchange="updateNote(${note.id}, this.value)">
+                        ${optionsHtml}
+                    </select>
+                `;
+                notesGrid.appendChild(card);
+            });
+            document.getElementById('total-beats').textContent = totalBeats.toFixed(2);
+        }
+
+        window.deleteNote = (id) => { notes = notes.filter(n => n.id !== id); renderNotesUI(); resetPlayback(); };
+        window.updateNote = (id, val) => { const note = notes.find(n => n.id === id); if(note) note.duration = parseFloat(val); renderNotesUI(); resetPlayback(); };
+        
+        document.getElementById('add-note-btn').addEventListener('click', () => {
+            notes.push({ id: Date.now(), duration: 1 });
+            renderNotesUI();
+            resetPlayback();
+        });
+
+        document.getElementById('import-btn').addEventListener('click', () => {
+            const text = document.getElementById('import-text').value;
+            const values = text.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+            if(values.length > 0) {
+                notes = values.map((val, i) => ({ id: Date.now() + i, duration: val }));
+                renderNotesUI();
+                resetPlayback();
+            }
+        });
+
+        // Âm thanh
+        function playClick(time, isAccent) {
+            if (isMuted) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(isAccent ? 1200 : 800, time);
+            osc.frequency.exponentialRampToValueAtTime(100, time + 0.05);
+            gain.gain.setValueAtTime(1, time);
+            gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+            osc.start(time);
+            osc.stop(time + 0.05);
+        }
+
+        function scheduler() {
+            while (nextNoteTime < audioCtx.currentTime + 0.1) {
+                if (notes.length > 0) {
+                    playClick(nextNoteTime, currentNoteIndex === 0);
+                    nextNoteTime += notes[currentNoteIndex].duration * (60.0 / tempo);
+                    currentNoteIndex = (currentNoteIndex + 1) % notes.length;
+                }
+            }
+            schedulerTimer = setTimeout(scheduler, 25);
+        }
+
+        function resetPlayback() {
+            if (isPlaying) {
+                clearTimeout(schedulerTimer);
+                if(audioCtx) {
+                    sequenceStartTime = audioCtx.currentTime;
+                    nextNoteTime = audioCtx.currentTime;
+                }
+                currentNoteIndex = 0;
+                scheduler();
+            }
+        }
+
+        // Vẽ Canvas
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (notes.length === 0) { requestAnimationFrame(draw); return; }
+
+            const totalBeats = notes.reduce((sum, n) => sum + n.duration, 0);
+            const paddingX = 40;
+            const trackWidth = canvas.width - paddingX * 2;
+            const pxPerBeat = trackWidth / Math.max(totalBeats, beatsPerMeasure); 
+            const baselineY = 220;
+
+            // 1. Vẽ Lưới phách (Đường đứt quãng và vạch nhịp)
+            const numBeatsToDraw = Math.max(totalBeats, beatsPerMeasure);
+            for (let b = 0; b <= numBeatsToDraw; b++) {
+                const x = paddingX + b * pxPerBeat;
+                ctx.beginPath();
+                ctx.moveTo(x, 40);
+                ctx.lineTo(x, baselineY + 40);
+                
+                if (b % beatsPerMeasure === 0) {
+                    // Vạch nhịp liền nét đậm
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([]);
+                } else {
+                    // Vạch phách đứt quãng
+                    ctx.strokeStyle = '#777777';
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([8, 8]);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]); // Reset
+            }
+
+            // 2. Vẽ Khối Nốt
+            let accumBeats = 0;
+            notes.forEach((note, i) => {
+                const x = paddingX + accumBeats * pxPerBeat;
+                const w = note.duration * pxPerBeat;
+                
+                ctx.fillStyle = neonColors[i % neonColors.length];
+                ctx.globalAlpha = 0.85;
+                ctx.beginPath();
+                // Khối dẹt, cao 24px
+                ctx.roundRect(x + 2, baselineY - 12, w - 4, 24, 4);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+                
+                accumBeats += note.duration;
+            });
+
+            // 3. Vẽ Bóng Nảy
+            if (isPlaying && audioCtx) {
+                const elapsedBeats = ((audioCtx.currentTime - sequenceStartTime) / (60.0 / tempo));
+                const currentLoopBeat = elapsedBeats % totalBeats;
+
+                let acc = 0, startBeat = 0, dur = 1;
+                for (let n of notes) {
+                    if (currentLoopBeat >= acc && currentLoopBeat < acc + n.duration) {
+                        startBeat = acc; dur = n.duration; break;
+                    }
+                    acc += n.duration;
+                }
+
+                const progress = (currentLoopBeat - startBeat) / dur;
+                const playheadX = paddingX + currentLoopBeat * pxPerBeat;
+                
+                // Độ cao nảy theo trường độ
+                const h = 120 * dur; 
+                const y = baselineY - (4 * h * progress * (1 - progress));
+
+                // Vẽ Playhead
+                ctx.beginPath();
+                ctx.moveTo(playheadX, 40);
+                ctx.lineTo(playheadX, baselineY + 30);
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Vẽ Bóng
+                ctx.beginPath();
+                ctx.arc(playheadX, y - 12, 10, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff3366';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#ff3366';
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            } else {
+                // Đứng yên
+                ctx.beginPath();
+                ctx.arc(paddingX, baselineY - 12, 10, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff3366';
+                ctx.fill();
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        // Sự kiện UI
+        document.getElementById('play-btn').addEventListener('click', (e) => {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            isPlaying = !isPlaying;
+            e.target.textContent = isPlaying ? '⏸ PAUSE' : '▶ PLAY';
+            e.target.classList.toggle('playing');
+            
+            if (isPlaying) {
+                sequenceStartTime = audioCtx.currentTime;
+                nextNoteTime = audioCtx.currentTime;
+                currentNoteIndex = 0;
+                scheduler();
+            } else {
+                clearTimeout(schedulerTimer);
+            }
+        });
+
+        document.getElementById('mute-btn').addEventListener('click', (e) => {
+            isMuted = !isMuted;
+            e.target.textContent = isMuted ? 'Đang Tắt' : 'Đang Bật';
+        });
+
+        document.getElementById('tempo').addEventListener('input', (e) => {
+            tempo = parseFloat(e.target.value);
+            document.getElementById('bpm-val').textContent = tempo;
+            resetPlayback();
+        });
+
+        document.getElementById('time-signature').addEventListener('change', (e) => {
+            beatsPerMeasure = parseInt(e.target.value);
+        });
+
+        renderNotesUI();
+        requestAnimationFrame(draw);
+    </script>
+</body>
+</html>
